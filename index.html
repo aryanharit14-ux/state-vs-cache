@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>State vs Cache — Understanding Long-Horizon Evolving State</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #f7f5f0;
+      --paper:       #efecea;
+      --text:        #1c1b18;
+      --muted:       #6a6862;
+      --faint:       #9e9b96;
+      --rule:        #d2cec5;
+      --rule-hvy:    #a8a49a;
+      --mono-bg:     #eae7df;
+      --cache:       #285e46;
+      --cache-faint: #f0f7f3;
+      --state:       #3b4c78;
+      --state-faint: #f0f2f9;
+      --warn:        #7c4118;
+      --warn-faint:  #f6ede5;
+      --ok:          #215e38;
+      --err:         #851818;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      line-height: 1.6;
+      font-size: 15px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    /* ── Section label ── */
+    .eyebrow {
+      font-size: .72rem;
+      font-weight: 600;
+      color: var(--faint);
+      margin-bottom: 12px;
+    }
+
+    /* ════════════════════════════════════════
+       HEADER
+    ════════════════════════════════════════ */
+    header { padding: 52px 0 0; }
+
+    .hdr-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 5px;
+    }
+
+    header h1 {
+      font-size: clamp(1.35rem, 3.5vw, 1.95rem);
+      font-weight: 700;
+      letter-spacing: -.4px;
+      line-height: 1.1;
+    }
+
+    .hdr-note { font-size: .68rem; color: var(--faint); white-space: nowrap; flex-shrink: 0; }
+
+    .hdr-sub {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .98rem;
+      font-style: italic;
+      color: var(--muted);
+      margin-bottom: 26px;
+    }
+
+    /* Claim block */
+    .claim { border-top: 2px solid var(--text); padding-top: 20px; }
+
+    .claim-q {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .97rem;
+      font-style: italic;
+      line-height: 1.72;
+      border-left: 2px solid var(--text);
+      padding-left: 15px;
+      margin-bottom: 18px;
+    }
+
+    .claim-dl { display: grid; grid-template-columns: max-content 1fr; }
+
+    .claim-dl dt {
+      font-size: .78rem;
+      font-weight: 600;
+      padding: 8px 22px 8px 0;
+      border-top: 1px solid var(--rule);
+      white-space: nowrap;
+      line-height: 1.45;
+    }
+
+    .claim-dl dd {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .85rem;
+      color: var(--muted);
+      padding: 8px 0;
+      border-top: 1px solid var(--rule);
+      line-height: 1.63;
+      margin: 0;
+    }
+
+    .claim-dl dt:first-child,
+    .claim-dl dt:first-child + dd { border-top: none; }
+
+    /* ════════════════════════════════════════
+       FRAMING
+    ════════════════════════════════════════ */
+    .framing { margin-top: 38px; padding-bottom: 30px; }
+
+    .framing p {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .92rem;
+      line-height: 1.76;
+      color: var(--muted);
+      max-width: 640px;
+    }
+
+    /* ════════════════════════════════════════
+       CONTROLS
+    ════════════════════════════════════════ */
+    .controls { margin-top: 34px; padding-bottom: 36px; }
+
+    .controls-panel {
+      border-top: 1px solid var(--rule-hvy);
+      border-bottom: 1px solid var(--rule);
+      padding: 20px 0 24px;
+      margin-top: 10px;
+    }
+
+    .controls-row {
+      display: grid;
+      grid-template-columns: 1fr 1px 1fr;
+      gap: 0 36px;
+    }
+
+    .ctrl-sep { background: var(--rule); }
+
+    .ctrl-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .ctrl-name code {
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .78rem;
+      background: var(--mono-bg);
+      color: var(--muted);
+      padding: 1px 5px;
+      border-radius: 2px;
+    }
+
+    .ctrl-val {
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: 2.1rem;
+      font-weight: 400;
+      line-height: 1;
+      color: var(--text);
+      margin-bottom: 13px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -.04em;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 3px;
+      background: linear-gradient(
+        to right,
+        var(--text) var(--fill, 0%),
+        var(--rule) var(--fill, 0%)
+      );
+      outline: none;
+      cursor: pointer;
+      display: block;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 13px;
+      background: var(--text);
+      border: none; border-radius: 0; cursor: pointer;
+    }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 13px; height: 13px;
+      background: var(--text);
+      border: none; border-radius: 0; cursor: pointer;
+    }
+
+    input[type="range"]:focus-visible { outline: 1px solid var(--text); outline-offset: 5px; }
+
+    .ctrl-hint { font-size: .74rem; color: var(--muted); margin-top: 10px; line-height: 1.55; }
+
+    @media (max-width: 560px) {
+      .controls-row { grid-template-columns: 1fr; gap: 24px; }
+      .ctrl-sep { display: none; }
+    }
+
+    /* ════════════════════════════════════════
+       MEMORY SYSTEMS
+    ════════════════════════════════════════ */
+    .systems { margin-top: 44px; }
+
+    .systems-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0 48px;
+      align-items: start;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 680px) {
+      .systems-grid { grid-template-columns: 1fr; gap: 44px 0; }
+    }
+
+    /* Panel header — structurally colored per system */
+    .sys-hdr { padding-bottom: 10px; margin-bottom: 16px; }
+
+    .cache-sys .sys-hdr { border-bottom: 2px solid var(--cache); }
+    .state-sys .sys-hdr { border-bottom: 2px solid var(--state); }
+
+    .sys-hdr h3 { font-size: .93rem; font-weight: 700; letter-spacing: -.1px; margin-bottom: 1px; }
+    .sys-tag { font-size: .68rem; color: var(--faint); font-style: italic; }
+
+    /* Accuracy readout */
+    .acc-num {
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: 1.75rem;
+      font-weight: 400;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 2px;
+    }
+
+    .acc-lbl { font-size: .68rem; color: var(--faint); font-style: italic; margin-bottom: 12px; }
+
+    .acc-track { height: 2px; background: var(--rule); margin-bottom: 16px; }
+    .acc-fill { height: 100%; transition: width .18s ease, background-color .18s ease; }
+
+    /* Stats table */
+    .sys-stats { margin-bottom: 16px; }
+
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--rule);
+      font-size: .79rem;
+      gap: 12px;
+    }
+
+    .stat:last-child { border-bottom: none; }
+    .stat-k { color: var(--muted); flex-shrink: 0; }
+    .stat-v { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Interference indicator */
+    .int-status {
+      font-size: .77rem;
+      font-weight: 600;
+      padding: 7px 11px;
+      margin-bottom: 16px;
+      border-left: 3px solid;
+      line-height: 1.4;
+    }
+
+    .int-ok   { color: var(--ok);   border-color: var(--ok);   background: var(--cache-faint); }
+    .int-med  { color: var(--warn); border-color: var(--warn); background: var(--warn-faint);  }
+    .int-high { color: var(--err);  border-color: var(--err);  background: #faeaea; }
+
+    /* ── Cache Ledger ── */
+    .ledger { border-top: 1px solid var(--rule); }
+
+    .ledger-hdr {
+      display: grid;
+      grid-template-columns: 36px 1fr 14px;
+      gap: 0 8px;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--rule-hvy);
+      font-size: .6rem;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--faint);
+    }
+
+    .ledger-body {
+      max-height: 360px;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .ledger-body::-webkit-scrollbar { width: 3px; }
+    .ledger-body::-webkit-scrollbar-track { background: transparent; }
+    .ledger-body::-webkit-scrollbar-thumb { background: var(--rule-hvy); }
+
+    .l-row {
+      display: grid;
+      grid-template-columns: 36px 1fr 14px;
+      gap: 0 8px;
+      align-items: center;
+      padding: 4px 0;
+      border-bottom: 1px solid var(--rule);
+      font-size: .78rem;
+      animation: fade-in .08s ease;
+    }
+
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+    .l-num {
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .68rem;
+      color: var(--faint);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .l-lbl { color: var(--text); }
+
+    .l-dot { width: 8px; height: 8px; border-radius: 1px; }
+    .l-ok  { background: var(--ok); }
+    .l-err { background: var(--err); }
+
+    .ledger-count {
+      font-size: .68rem;
+      color: var(--faint);
+      padding: 5px 0 0;
+      font-style: italic;
+      border-top: 1px solid var(--rule);
+    }
+
+    /* ── State heatmap ── */
+    .hm-area { margin-top: 2px; }
+
+    .hm-lbl {
+      font-size: .63rem;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--faint);
+      margin-bottom: 8px;
+    }
+
+    .hm-wrap {
+      display: inline-block;
+      border: 1px solid var(--rule-hvy);
+      line-height: 0;
+      vertical-align: top;
+    }
+
+    #heatmap-canvas { display: block; image-rendering: pixelated; }
+
+    .hm-legend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .67rem;
+      color: var(--faint);
+    }
+
+    .hm-grad {
+      width: 80px;
+      height: 5px;
+      background: linear-gradient(to right, #1a4aaa, #50483a, #c83030);
+    }
+
+    .hm-caption {
+      font-size: .69rem;
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.5;
+      font-style: italic;
+      max-width: 240px;
+    }
+
+    /* Why did it forget — collapsible */
+    .forget { margin-top: 18px; border-top: 1px solid var(--rule); }
+
+    .forget summary {
+      font-size: .77rem;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 10px 0;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .forget summary::-webkit-details-marker { display: none; }
+
+    .forget summary::before {
+      content: '▶';
+      font-size: .58rem;
+      color: var(--faint);
+      transition: transform .15s;
+      display: inline-block;
+    }
+
+    .forget[open] summary::before { transform: rotate(90deg); }
+
+    .forget-content { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px; }
+
+    .forget-content p {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .85rem;
+      color: var(--muted);
+      line-height: 1.72;
+    }
+
+    .forget-content strong { color: var(--text); }
+
+    /* ════════════════════════════════════════
+       QUERY INSPECTOR
+    ════════════════════════════════════════ */
+    .query { margin-top: 52px; }
+
+    .query-sel-row {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      margin: 12px 0 22px;
+    }
+
+    .q-sel-lbl {
+      font-size: .75rem;
+      font-weight: 600;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    select {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--rule-hvy);
+      color: var(--text);
+      padding: 4px 22px 4px 0;
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .84rem;
+      cursor: pointer;
+      min-width: 150px;
+      border-radius: 0;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0.5 0.5L5 5.5L9.5 0.5' stroke='%239e9b96' stroke-width='1.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 2px center;
+    }
+
+    select:focus { outline: none; border-bottom-color: var(--text); }
+
+    .q-table { width: 100%; border-collapse: collapse; }
+
+    .q-table tr td {
+      padding: 10px 0;
+      border-top: 1px solid var(--rule);
+      vertical-align: top;
+    }
+
+    .q-table tr:first-child td { border-top: 2px solid var(--text); }
+
+    .ql {
+      font-size: .72rem;
+      font-weight: 600;
+      color: var(--muted);
+      width: 146px;
+      padding-right: 18px;
+      padding-top: 11px;
+      white-space: nowrap;
+    }
+
+    .ql-cache { color: var(--cache); }
+    .ql-state { color: var(--state); }
+
+    .qv {
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .88rem;
+      color: var(--text);
+    }
+
+    .qm { font-size: .72rem; color: var(--faint); text-align: right; padding-left: 14px; padding-top: 2px; white-space: nowrap; }
+
+    .qvd { font-size: .77rem; font-weight: 600; text-align: right; padding-left: 14px; white-space: nowrap; }
+
+    .v-ok  { color: var(--ok); }
+    .v-err { color: var(--err); }
+
+    @media (max-width: 520px) {
+      .ql { width: 100px; font-size: .58rem; }
+      .qm { display: none; }
+      .qvd { font-size: .68rem; }
+    }
+
+    /* ════════════════════════════════════════
+       BDH SECTION — paper background, full bleed
+    ════════════════════════════════════════ */
+    .bdh-outer {
+      margin-top: 64px;
+      background: var(--paper);
+      border-top: 2px solid var(--text);
+      padding: 44px 0 52px;
+    }
+
+    .bdh-inner {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 28px;
+    }
+
+    .bdh-inner h2 {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: 1.18rem;
+      font-weight: 400;
+      margin-bottom: 6px;
+      letter-spacing: -.1px;
+    }
+
+    .bdh-lead {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .88rem;
+      color: var(--muted);
+      margin-bottom: 14px;
+      line-height: 1.72;
+    }
+
+    .bdh-ref {
+      display: inline-block;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .78rem;
+      font-style: italic;
+      color: var(--muted);
+      border: 1px solid var(--rule);
+      padding: 4px 10px;
+      margin-bottom: 4px;
+    }
+
+    .eq-block {
+      background: var(--mono-bg);
+      border-left: 3px solid var(--rule-hvy);
+      padding: 16px 20px;
+      margin: 20px 0;
+      font-family: 'JetBrains Mono', 'Consolas', 'Liberation Mono', monospace;
+      font-size: .88rem;
+      line-height: 2.3;
+      overflow-x: auto;
+    }
+
+    .eq-n { font-weight: 600; color: var(--text); }
+    .eq-c { color: var(--muted); font-style: italic; }
+
+    .scope-box {
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--rule-hvy);
+      padding: 14px 18px;
+      margin: 20px 0;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .86rem;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    .scope-box strong { color: var(--text); }
+
+    .bdh-inner h3 {
+      font-size: .8rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+      text-transform: uppercase;
+      margin: 28px 0 12px;
+    }
+
+    .omit-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      margin-bottom: 20px;
+    }
+
+    .omit-list li {
+      display: flex;
+      gap: 14px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .86rem;
+      color: var(--muted);
+      line-height: 1.63;
+    }
+
+    .omit-list li::before { content: '—'; color: var(--rule-hvy); flex-shrink: 0; }
+    .omit-list li strong { color: var(--text); }
+
+    .cmp-box {
+      border: 1px solid var(--rule);
+      padding: 14px 18px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .86rem;
+      color: var(--muted);
+      line-height: 1.72;
+      margin: 20px 0;
+    }
+
+    .cmp-box strong { color: var(--text); }
+
+    .cq-note {
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--muted);
+      padding: 12px 16px;
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .82rem;
+      color: var(--muted);
+      line-height: 1.63;
+      margin-top: 20px;
+    }
+
+    .cq-note strong { color: var(--text); }
+
+    /* ════════════════════════════════════════
+       AFTER BDH
+    ════════════════════════════════════════ */
+    .after-bdh { padding: 48px 0 64px; }
+
+    .observation {
+      padding: 18px 0;
+      border-top: 1px solid var(--rule);
+      border-bottom: 1px solid var(--rule);
+      margin-bottom: 44px;
+    }
+
+    .observation p {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .97rem;
+      line-height: 1.72;
+    }
+
+    .limitations-section { margin-bottom: 48px; }
+
+    .limits-h {
+      font-size: .82rem;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .limits-p {
+      font-family: Georgia, 'Times New Roman', serif;
+      font-size: .85rem;
+      color: var(--muted);
+      line-height: 1.76;
+    }
+
+    .limits-p strong { color: var(--text); }
+
+    footer {
+      border-top: 1px solid var(--rule);
+      padding: 16px 0 0;
+      font-size: .7rem;
+      color: var(--faint);
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrap">
+
+<!-- ═════ HEADER ══════════════════════════════════════════════ -->
+<header>
+  <div class="hdr-top">
+    <h1>State vs Cache</h1>
+    <span class="hdr-note">Educational demo from the BDH explainer series</span>
+  </div>
+  <p class="hdr-sub">Understanding Long-Horizon Evolving State</p>
+
+  <div class="claim">
+    <blockquote class="claim-q">
+      &ldquo;A fixed-shape recurrent state can process a sequence of unbounded duration
+      without allocating a new memory slot for every token, but it can still forget
+      through interference.&rdquo;
+    </blockquote>
+    <dl class="claim-dl">
+      <dt>unbounded duration</dt>
+      <dd>The state representation does not grow with sequence length &mdash; the matrix stays D&times;D regardless of how many facts are written into it.</dd>
+      <dt>can still forget</dt>
+      <dd>Information capacity is still limited &mdash; the finite D&times;D matrix cannot faithfully represent arbitrarily many stored facts.</dd>
+      <dt>through interference</dt>
+      <dd>Demonstrated live below, not asserted. Move the sliders and watch retrieval degrade when N exceeds D&rsquo;s effective capacity.</dd>
+    </dl>
+  </div>
+</header>
+
+<!-- ═════ FRAMING ═════════════════════════════════════════════ -->
+<div class="framing">
+  <p>This experiment stores N random key&rarr;value facts in two different memory systems, then queries every key and measures retrieval accuracy. The growing cache allocates one dictionary entry per fact. The recurrent state compresses all N facts into a single fixed D&times;D matrix via additive outer-product writes. Adjust N and D to observe when and how retrieval degrades.</p>
+</div>
+
+<!-- ═════ CONTROLS ════════════════════════════════════════════ -->
+<section class="controls" id="controls">
+  <div class="eyebrow">Experiment controls</div>
+  <div class="controls-panel">
+    <div class="controls-row">
+      <div class="ctrl">
+        <div class="ctrl-name">Number of facts <code>N</code></div>
+        <div class="ctrl-val" id="n-val">18</div>
+        <input type="range" id="n-slider" min="1" max="64" value="18" />
+        <p class="ctrl-hint">Facts to store and retrieve. The growing cache allocates one slot per fact; the recurrent state must compress all N facts into the same fixed D&times;D matrix.</p>
+      </div>
+      <div class="ctrl-sep"></div>
+      <div class="ctrl">
+        <div class="ctrl-name">State dimension <code>D</code></div>
+        <div class="ctrl-val" id="d-val">8&thinsp;&times;&thinsp;8</div>
+        <input type="range" id="d-slider" min="2" max="24" value="8" />
+        <p class="ctrl-hint">Dimension of key/value vectors and the D&times;D recurrent state matrix. Higher D provides more quasi-orthogonal directions, reducing interference.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════ MEMORY SYSTEMS ══════════════════════════════════════ -->
+<section class="systems" id="memory-systems">
+  <div class="eyebrow">Memory Systems &mdash; live computation on every slider change</div>
+  <div class="systems-grid">
+
+    <!-- GROWING CACHE -->
+    <div class="cache-sys">
+      <div class="sys-hdr">
+        <h3>Growing Cache</h3>
+        <span class="sys-tag">control &mdash; plain dictionary</span>
+      </div>
+
+      <div class="acc-num cache-acc-color" id="cache-acc" style="color:var(--cache)">—%</div>
+      <div class="acc-lbl">retrieval accuracy</div>
+      <div class="acc-track">
+        <div class="acc-fill" id="cache-bar" style="width:0%;background:var(--cache)"></div>
+      </div>
+
+      <div class="sys-stats">
+        <div class="stat">
+          <span class="stat-k">Memory allocated</span>
+          <span class="stat-v" style="font-family:'JetBrains Mono','Consolas',monospace" id="cache-mem">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-k">Grows with N?</span>
+          <span class="stat-v" style="color:var(--warn)">Yes &mdash; O(N)</span>
+        </div>
+        <div class="stat">
+          <span class="stat-k">Interference?</span>
+          <span class="stat-v" style="color:var(--ok)">No &mdash; isolated slots</span>
+        </div>
+      </div>
+
+      <div class="ledger">
+        <div class="ledger-hdr">
+          <span>#</span><span>Key</span><span></span>
+        </div>
+        <div class="ledger-body" id="cache-ledger"></div>
+      </div>
+      <div class="ledger-count" id="ledger-count"></div>
+    </div>
+
+    <!-- FIXED RECURRENT STATE -->
+    <div class="state-sys">
+      <div class="sys-hdr">
+        <h3>Fixed Recurrent State</h3>
+        <span class="sys-tag">BDH-inspired outer-product memory</span>
+      </div>
+
+      <div class="acc-num" id="state-acc" style="color:var(--state)">—%</div>
+      <div class="acc-lbl">retrieval accuracy &mdash; nearest value by cosine similarity</div>
+      <div class="acc-track">
+        <div class="acc-fill" id="state-bar" style="width:0%;background:var(--state)"></div>
+      </div>
+
+      <div class="sys-stats">
+        <div class="stat">
+          <span class="stat-k">Memory allocated</span>
+          <span class="stat-v" style="font-family:'JetBrains Mono','Consolas',monospace" id="state-mem">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-k">Grows with N?</span>
+          <span class="stat-v" style="color:var(--ok)">No &mdash; fixed D&times;D</span>
+        </div>
+        <div class="stat">
+          <span class="stat-k">Interference?</span>
+          <span class="stat-v" style="color:var(--warn)">Yes &mdash; shared matrix</span>
+        </div>
+      </div>
+
+      <div id="int-label" class="int-status int-ok">Low interference &mdash; retrieval intact</div>
+
+      <!-- Sigma matrix — always visible -->
+      <div class="hm-area">
+        <div class="hm-lbl">&sigma; matrix &mdash; D&times;D accumulated state</div>
+        <div class="hm-wrap">
+          <canvas id="heatmap-canvas"></canvas>
+        </div>
+        <div class="hm-legend">
+          <span>neg</span>
+          <div class="hm-grad"></div>
+          <span>pos</span>
+        </div>
+        <p class="hm-caption">Cell color encodes signed value of &sigma;[row][col]. High-magnitude off-diagonal entries reveal cross-talk between stored key directions.</p>
+      </div>
+
+      <details class="forget">
+        <summary>Why did it forget?</summary>
+        <div class="forget-content">
+          <p>Every write does <strong>&sigma; += outer(key, value)</strong> &mdash; a rank-1 update. With N small relative to D, random unit vectors in D-dimensional space tend to be nearly orthogonal, so each stored fact occupies a nearly distinct &ldquo;direction&rdquo; inside the matrix. A query key activates mostly its own stored direction, and retrieval succeeds.</p>
+          <p>As N grows beyond D&rsquo;s effective capacity, <strong>non-orthogonal key vectors accumulate inside the same shared matrix.</strong> A query key now partially activates the directions of <em>other</em> stored facts, producing a blended raw output. The nearest-value search picks the closest stored value vector to that blended output &mdash; but under high interference, that is no longer the correct one. <strong>This is interference. It is not a bug; it is a capacity limit.</strong></p>
+        </div>
+      </details>
+    </div>
+
+  </div>
+</section>
+
+<!-- ═════ QUERY INSPECTOR ═════════════════════════════════════ -->
+<section class="query" id="query-explorer">
+  <div class="eyebrow">Query Inspector</div>
+  <div class="query-sel-row">
+    <label class="q-sel-lbl" for="fact-select">Key to query</label>
+    <select id="fact-select"></select>
+  </div>
+  <table class="q-table">
+    <tbody>
+      <tr>
+        <td class="ql">Key queried</td>
+        <td class="qv" id="qr-key">—</td>
+        <td class="qm" id="qr-key-sub"></td>
+      </tr>
+      <tr>
+        <td class="ql">Ground truth</td>
+        <td class="qv" id="qr-truth">—</td>
+        <td class="qm"></td>
+      </tr>
+      <tr>
+        <td class="ql ql-cache">Cache retrieved</td>
+        <td class="qv" id="qr-cache">—</td>
+        <td class="qvd" id="qr-cache-verdict"></td>
+      </tr>
+      <tr>
+        <td class="ql ql-state">State retrieved</td>
+        <td class="qv" id="qr-state">—</td>
+        <td class="qvd" id="qr-state-verdict"></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+</div><!-- /wrap -->
+
+<!-- ═════ BDH CONNECTION — paper-like, full-bleed background ═ -->
+<div class="bdh-outer" id="bdh-connection">
+  <div class="bdh-inner">
+    <div class="eyebrow">BDH Connection</div>
+    <h2>The Mechanism Behind This Toy</h2>
+    <p class="bdh-lead">How this experiment relates to the BDH (Dragon Hatchling) architecture. The write/read rules used in this toy share their mathematical structure with the idealized formulation described in Pathway&rsquo;s</p>
+    <span class="bdh-ref">&ldquo;From attention to synapses: deriving BDH&rdquo; &mdash; Ch.&thinsp;2, BDH Explainer Series</span>
+
+    <div class="eq-block">
+      <span class="eq-n">&sigma;<sub>t</sub></span>&ensp;=&ensp;&sigma;<sub>t&minus;1</sub>&ensp;+&ensp;x<sub>t</sub><sup>T</sup>&ensp;v<sub>t</sub>
+      <span class="eq-c">&ensp;&ensp;&larr; synaptic state update (write)</span><br/>
+      <span class="eq-n">o<sub>t</sub></span>&ensp;=&ensp;x<sub>t</sub>&ensp;&middot;&ensp;&sigma;<sub>t</sub>
+      <span class="eq-c">&ensp;&ensp;&larr; read</span>
+    </div>
+
+    <div class="scope-box">
+      <strong>Scope of this analogy.</strong>&ensp;Our toy&rsquo;s write/read rule &mdash; &sigma; += outer(key, value), read = key @ &sigma; &mdash; has the same additive outer-product write/read structure as the idealized BDH formulation shown above. It is not a reproduction of the trained BDH architecture: our toy uses a small engineered key/value retrieval task, while BDH has additional learned dynamics and nonlinearities layered on top of this mechanism.
+    </div>
+
+    <h3>What this toy omits from BDH&rsquo;s real design</h3>
+    <ul class="omit-list">
+      <li><strong>ReLU nonlinearity and enforced sparse, non-negative activity</strong> &mdash; BDH uses these to maintain stable, interpretable internal representations.</li>
+      <li><strong>The transition operator U</strong> &mdash; handles positional and decay effects in BDH&rsquo;s real system; our toy has no temporal ordering beyond write sequence.</li>
+      <li><strong>Low-rank factorization (E, Dx, Dy)</strong> &mdash; used in BDH for GPU efficiency; our toy uses a full D&times;D dense matrix.</li>
+    </ul>
+
+    <div class="cmp-box">
+      <strong>BDH vs. a Transformer&rsquo;s KV cache:</strong>&ensp;In BDH&rsquo;s architecture, the runtime memory is a fixed-size synaptic state whose effective context length is bounded by <em>information capacity</em> rather than by sequence length &mdash; meaning more tokens can be processed without the memory structure itself growing. This contrasts with a Transformer&rsquo;s key-value cache, where every new token appends a new entry, causing memory to scale linearly with sequence length. The BDH approach trades the Transformer&rsquo;s per-entry isolation for the ability to process very long sequences inside a structure that does not expand.
+    </div>
+
+    <div class="cq-note">
+      <strong>Related: BDH-CQ (Pathway, Aug 2026)</strong> &mdash; A related system in the same family that adapts via recurrent state at inference time without updating its parameters, enabling test-time specialization. Secondary to the core BDH discussion above.
+    </div>
+  </div>
+</div>
+
+<!-- ═════ AFTER BDH ════════════════════════════════════════════ -->
+<div class="wrap after-bdh">
+
+  <section id="observation">
+    <div class="eyebrow">Key Observation</div>
+    <div class="observation">
+      <p>&ldquo;Fixed-size state removes the need to grow memory with every token, but fixed capacity does not mean unlimited information storage. Information can interfere inside the state.&rdquo;</p>
+    </div>
+  </section>
+
+  <section class="limitations-section" id="limitations">
+    <div class="eyebrow">Limitations of This Demo</div>
+    <p class="limits-h">Limitations</p>
+    <p class="limits-p">
+      <strong>Within-run interference vs. real long-context behavior.</strong>
+      This toy conflates <em>within-a-single-run</em> interference (N random facts compressed
+      into one fixed matrix) with BDH&rsquo;s actual reported long-context behavior across its
+      training distribution and real benchmarks. We are not claiming this toy reproduces
+      BDH&rsquo;s ARC-AGI-1 benchmark results, its long-context evaluations, or any published
+      numbers. The toy illustrates one isolated mechanism &mdash; the additive outer-product
+      write &mdash; and its inherent capacity limit under random, non-orthogonal keys. Real BDH
+      manages this through nonlinearities, learned dynamics, and a very different training regime.
+      This is labeled explicitly as an <strong>educational reimplementation of one isolated
+      mechanism</strong>.
+    </p>
+  </section>
+
+  <footer>
+    Educational demo. Not affiliated with or endorsed by Pathway.<br>
+    No benchmark results reproduced.
+  </footer>
+
+</div><!-- /after-bdh -->
+
+<!-- ═══════════════════════════════════════════════════════════
+     JAVASCRIPT — computation unchanged; rendering updated
+═══════════════════════════════════════════════════════════ -->
+<script>
+/* ── Seeded PRNG (mulberry32) — unchanged ── */
+function mulberry32(seed) {
+  return function() {
+    seed |= 0;
+    seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ── Numeric helpers — unchanged ── */
+function randUnit(d, rng) {
+  const v = new Float64Array(d);
+  let norm = 0;
+  for (let i = 0; i < d; i++) { v[i] = rng() * 2 - 1; norm += v[i] * v[i]; }
+  norm = Math.sqrt(norm);
+  for (let i = 0; i < d; i++) v[i] /= norm;
+  return v;
+}
+
+function matVec(sigma, key, D) {
+  const out = new Float64Array(D);
+  for (let i = 0; i < D; i++)
+    for (let j = 0; j < D; j++)
+      out[j] += key[i] * sigma[i * D + j];
+  return out;
+}
+
+function cosine(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    na  += a[i] * a[i];
+    nb  += b[i] * b[i];
+  }
+  return dot / (Math.sqrt(na * nb) + 1e-12);
+}
+
+function nearest(raw, facts) {
+  let best = -Infinity, idx = 0;
+  for (let j = 0; j < facts.length; j++) {
+    const s = cosine(raw, facts[j].val);
+    if (s > best) { best = s; idx = j; }
+  }
+  return idx;
+}
+
+/* ── Fact labels — unchanged ── */
+const LABELS = [
+  "Alpha","Beta","Gamma","Delta","Epsilon","Zeta","Eta","Theta",
+  "Iota","Kappa","Lambda","Mu","Nu","Xi","Omicron","Pi",
+  "Rho","Sigma","Tau","Upsilon","Phi","Chi","Psi","Omega",
+  "Apex","Blaze","Cobalt","Drift","Echo","Flare","Glint","Halo",
+  "Iris","Jade","Knoll","Lumen","Mist","Nova","Opal","Prism",
+  "Quill","Reef","Slate","Thorn","Umbra","Veil","Wren","Xenon",
+  "Yield","Zenith","Arc","Birch","Cairn","Dune","Ebb","Fern",
+  "Glen","Haze","Isle","Jest","Kern","Lynx","Moor","Nook"
+];
+
+/* ── Main simulation — unchanged ── */
+const SEED = 0xDEADBEEF;
+
+function runSim(N, D) {
+  const rng = mulberry32(SEED);
+  const facts = [];
+  for (let i = 0; i < N; i++) {
+    facts.push({ key: randUnit(D, rng), val: randUnit(D, rng), label: LABELS[i % LABELS.length] });
+  }
+  const cacheMap = new Map();
+  for (let i = 0; i < N; i++) cacheMap.set(facts[i].label, i);
+  const sigma = new Float64Array(D * D);
+  for (let i = 0; i < N; i++) {
+    const { key, val } = facts[i];
+    for (let r = 0; r < D; r++)
+      for (let c = 0; c < D; c++)
+        sigma[r * D + c] += key[r] * val[c];
+  }
+  const results = facts.map((f, idx) => {
+    const cacheIdx = cacheMap.get(f.label);
+    const cacheCorrect = (cacheIdx === idx);
+    const raw = matVec(sigma, f.key, D);
+    const predIdx = nearest(raw, facts);
+    const stateCorrect = (predIdx === idx);
+    return { label: f.label, groundTruth: f.label, cacheCorrect, stateCorrect, predLabel: facts[predIdx].label };
+  });
+  const cacheAcc = results.filter(r => r.cacheCorrect).length / N;
+  const stateAcc = results.filter(r => r.stateCorrect).length / N;
+  return { N, D, facts, sigma, results, cacheAcc, stateAcc };
+}
+
+/* ── Heatmap drawing — sigmaColor unchanged; grid lines added ── */
+function drawHeatmap(sigma, D) {
+  const canvas = document.getElementById('heatmap-canvas');
+  const CELL = Math.max(4, Math.min(30, Math.floor(240 / D)));
+  const size = D * CELL;
+  canvas.width  = size;
+  canvas.height = size;
+  canvas.style.width  = size + 'px';
+  canvas.style.height = size + 'px';
+
+  const ctx = canvas.getContext('2d');
+  let maxAbs = 1e-9;
+  for (let k = 0; k < sigma.length; k++) if (Math.abs(sigma[k]) > maxAbs) maxAbs = Math.abs(sigma[k]);
+
+  for (let i = 0; i < D; i++) {
+    for (let j = 0; j < D; j++) {
+      const t = sigma[i * D + j] / maxAbs;
+      ctx.fillStyle = sigmaColor(t);
+      ctx.fillRect(j * CELL, i * CELL, CELL, CELL);
+    }
+  }
+
+  // Grid lines — make matrix cell structure explicit
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i <= D; i++) {
+    ctx.beginPath(); ctx.moveTo(i * CELL, 0);    ctx.lineTo(i * CELL, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,    i * CELL); ctx.lineTo(size, i * CELL); ctx.stroke();
+  }
+}
+
+function sigmaColor(t) {
+  // Diverging: negative → blue, zero → near-black, positive → red — unchanged
+  if (t < 0) {
+    const s = -t;
+    return `rgb(${Math.round(30*(1-s))},${Math.round(40*(1-s)+20*s)},${Math.round(30*(1-s)+200*s)})`;
+  } else {
+    return `rgb(${Math.round(30*(1-t)+239*t)},${Math.round(40*(1-t)+83*t)},${Math.round(30*(1-t)+80*t)})`;
+  }
+}
+
+/* ── Utilities ── */
+function pct(v) { return Math.round(v * 100) + '%'; }
+
+function accColor(v) {
+  if (v >= 0.9) return 'var(--ok)';
+  if (v >= 0.5) return 'var(--warn)';
+  return 'var(--err)';
+}
+
+function setInterference(acc) {
+  const el = document.getElementById('int-label');
+  if (acc >= 0.95) {
+    el.className = 'int-status int-ok';
+    el.textContent = 'Low interference \u2014 retrieval intact';
+  } else if (acc >= 0.5) {
+    el.className = 'int-status int-med';
+    el.textContent = 'Moderate interference \u2014 some facts lost';
+  } else {
+    el.className = 'int-status int-high';
+    el.textContent = 'High interference \u2014 forgetting observed';
+  }
+}
+
+function updateSliderFill(el) {
+  const v = (el.value - el.min) / (el.max - el.min) * 100;
+  el.style.setProperty('--fill', v.toFixed(2) + '%');
+}
+
+/* ── Cache ledger renderer ── */
+function renderCacheLedger(results) {
+  const body = document.getElementById('cache-ledger');
+  body.innerHTML = '';
+  results.forEach((r, i) => {
+    const row = document.createElement('div');
+    row.className = 'l-row';
+    row.innerHTML =
+      `<span class="l-num">${String(i + 1).padStart(3, '0')}</span>` +
+      `<span class="l-lbl">${r.label}</span>` +
+      `<span class="l-dot ${r.cacheCorrect ? 'l-ok' : 'l-err'}" ` +
+        `title="${r.cacheCorrect ? 'correct' : 'incorrect'}"></span>`;
+    body.appendChild(row);
+  });
+  const n = results.length;
+  document.getElementById('ledger-count').textContent =
+    `${n} entr${n === 1 ? 'y' : 'ies'} stored`;
+}
+
+/* ── Full UI update ── */
+let current = null;
+
+function updateAll() {
+  const nSlider = document.getElementById('n-slider');
+  const dSlider = document.getElementById('d-slider');
+  const N = +nSlider.value;
+  const D = +dSlider.value;
+
+  updateSliderFill(nSlider);
+  updateSliderFill(dSlider);
+
+  document.getElementById('n-val').textContent = N;
+  document.getElementById('d-val').innerHTML = D + '\u202f\u00d7\u202f' + D;
+
+  current = runSim(N, D);
+  const { facts, sigma, results, cacheAcc, stateAcc } = current;
+
+  // Cache panel
+  document.getElementById('cache-acc').textContent     = pct(cacheAcc);
+  document.getElementById('cache-bar').style.width     = pct(cacheAcc);
+  document.getElementById('cache-mem').textContent     = N + ' entries';
+  renderCacheLedger(results);
+
+  // State panel
+  document.getElementById('state-acc').textContent            = pct(stateAcc);
+  document.getElementById('state-acc').style.color            = accColor(stateAcc);
+  document.getElementById('state-bar').style.width            = pct(stateAcc);
+  document.getElementById('state-bar').style.backgroundColor  = accColor(stateAcc);
+  document.getElementById('state-mem').textContent            = `${D}\u00d7${D} matrix (${D * D} values)`;
+  setInterference(stateAcc);
+  drawHeatmap(sigma, D);
+
+  populateSelect(facts, results);
+}
+
+/* ── Query explorer ── */
+function populateSelect(facts, results) {
+  const sel = document.getElementById('fact-select');
+  const prev = parseInt(sel.value) || 0;
+  sel.innerHTML = '';
+  facts.forEach((f, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `"${f.label}"`;
+    sel.appendChild(opt);
+  });
+  // Prefer first failing key so interference is immediately visible
+  const firstFailing = results.findIndex(r => !r.stateCorrect);
+  const idx = firstFailing !== -1 ? firstFailing : (prev < facts.length ? prev : 0);
+  sel.value = idx;
+  showQuery(idx);
+}
+
+function showQuery(idx) {
+  if (!current) return;
+  const { facts, results } = current;
+  const r = results[idx];
+
+  document.getElementById('qr-key').textContent    = `"${r.label}"`;
+  document.getElementById('qr-key-sub').textContent = `D\u202f=\u202f${facts[idx].key.length} unit vector`;
+  document.getElementById('qr-truth').textContent   = `"${r.groundTruth}"`;
+
+  const cok = r.cacheCorrect;
+  document.getElementById('qr-cache').textContent          = cok ? `"${r.label}"` : `"${r.predLabel}"`;
+  document.getElementById('qr-cache').style.color          = cok ? 'var(--ok)' : 'var(--err)';
+  document.getElementById('qr-cache-verdict').textContent  = cok ? 'exact match' : `retrieved \u201c${r.predLabel}\u201d instead`;
+  document.getElementById('qr-cache-verdict').className    = 'qvd ' + (cok ? 'v-ok' : 'v-err');
+
+  const sok = r.stateCorrect;
+  document.getElementById('qr-state').textContent          = sok ? `"${r.label}"` : `"${r.predLabel}"`;
+  document.getElementById('qr-state').style.color          = sok ? 'var(--ok)' : 'var(--err)';
+  document.getElementById('qr-state-verdict').textContent  = sok ? 'exact match' : `retrieved \u201c${r.predLabel}\u201d instead`;
+  document.getElementById('qr-state-verdict').className    = 'qvd ' + (sok ? 'v-ok' : 'v-err');
+}
+
+/* ── Event wiring ── */
+document.getElementById('n-slider').addEventListener('input', updateAll);
+document.getElementById('d-slider').addEventListener('input', updateAll);
+document.getElementById('fact-select').addEventListener('change', function () {
+  showQuery(parseInt(this.value));
+});
+
+/* ── Boot: N=18, D=8 — immediately shows interference ── */
+updateAll();
+</script>
+</body>
+</html>
