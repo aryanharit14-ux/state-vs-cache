@@ -4,9 +4,9 @@
 
 **Claim status:** This claim is demonstrated live, in-browser, on a small toy retrieval task. It is not a benchmark result and does not reproduce any published BDH numbers, training run, or evaluation.
 
-**Live demo:** [insert deployed URL here]
+**Live demo:** https://state-vs-cache.vercel.app/
 
-**Repository:** [insert repo URL here]
+**Repository:** https://github.com/aryanharit14-ux/state-vs-cache
 
 ---
 
