@@ -10,6 +10,28 @@
 
 ---
 
+## Audience and prerequisites
+
+**Intended learner:** Students, developers, and early-career ML practitioners
+who understand basic vectors and matrix multiplication and want an intuitive,
+interactive introduction to fixed-state sequence memory. No prior knowledge
+of BDH is required.
+
+**Prerequisites:** Basic familiarity with vectors, dot products, and matrix
+multiplication. A rough understanding of the idea that a Transformer can
+retain past information in a growing KV cache is helpful, but no prior
+knowledge of BDH is assumed.
+
+**Learning objectives:** After using this explainer, the learner should be
+able to:
+- explain why a fixed-size recurrent state can process sequences without
+  allocating a new memory slot for every token;
+- distinguish a growing exact cache from a fixed-size recurrent state;
+- explain how interference between stored information can cause retrieval
+  failures in a fixed-capacity state; and
+- connect the toy's additive outer-product write/read mechanism to the
+  idealized BDH formulation while recognizing the limits of that analogy.
+
 ## What this demonstrates
 
 Two memory systems are given the same stream of randomly generated key-to-value facts, and both are queried on every stored key:
